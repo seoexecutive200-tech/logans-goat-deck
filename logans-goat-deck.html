@@ -1198,36 +1198,47 @@ async function openaiCall(prompt, maxTok){
   });
   const headers = {'Content-Type':'application/json','Authorization':'Bearer '+key};
 
-  // Try 3 proxies in order — first one that works wins
-  const urls = [
-    DIRECT_URL,
-    'https://corsproxy.io/?' + encodeURIComponent(DIRECT_URL),
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent(DIRECT_URL),
+  // Since the file is hosted on a real server, try direct first
+  // then fall back through multiple proxies
+  const attempts = [
+    // 1. Direct call — works when hosted on a real domain/server
+    () => fetch(DIRECT_URL, {method:'POST', headers, body}),
+    // 2. corsproxy.io
+    () => fetch('https://corsproxy.io/?' + encodeURIComponent(DIRECT_URL), {method:'POST', headers, body}),
+    // 3. cors-anywhere (public)
+    () => fetch('https://cors-anywhere.herokuapp.com/' + DIRECT_URL, {method:'POST', headers:{...headers,'X-Requested-With':'XMLHttpRequest'}, body}),
+    // 4. thingproxy
+    () => fetch('https://thingproxy.freeboard.io/fetch/' + DIRECT_URL, {method:'POST', headers, body}),
+    // 5. allorigins
+    () => fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(DIRECT_URL), {method:'POST', headers, body}),
   ];
 
   let lastErr = '';
-  for(const url of urls){
+  for(const attempt of attempts){
     try{
-      const resp = await fetch(url, {method:'POST', headers, body});
+      const resp = await attempt();
       if(resp.status===401) throw new Error('Invalid OpenAI API key — check Settings.');
       if(resp.status===429) throw new Error('OpenAI rate limited — wait a moment and retry.');
+      if(resp.status===403) continue; // proxy blocked, try next
       if(!resp.ok){
         let m = 'HTTP '+resp.status;
         try{ const e=await resp.json(); m=e.error?.message||m; }catch(_){}
-        throw new Error(m);
+        // Don't throw on proxy errors, try next
+        lastErr = m; continue;
       }
       const data = await resp.json();
       const text = data.choices?.[0]?.message?.content;
       if(text) return text;
-      throw new Error('Empty response');
+      lastErr = 'Empty response'; continue;
     }catch(e){
       lastErr = e.message;
-      // If it's an auth/rate error don't bother trying proxies
       if(e.message.includes('API key') || e.message.includes('rate limit')) throw e;
-      // Otherwise try next proxy
+      // Network error — try next proxy
     }
   }
-  throw new Error('OpenAI unreachable from browser. ' + lastErr + ' — Try hosting this file via: npx serve .');
+  // All failed — switch to Groq automatically
+  console.warn('OpenAI unreachable, falling back to Groq');
+  return _groqCall(prompt, maxTok);
 }
 
 // ── AI ANALYSIS (detail pane)
