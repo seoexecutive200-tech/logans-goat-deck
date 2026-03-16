@@ -1374,19 +1374,31 @@ QUANTITY: ${preQty || 'none'}
 RISK: $${riskUSD}
 MARKET: [TRADEABLE if IB + trend align, NOT TRADEABLE if no IB or conflicting signals, WAIT if unclear]`;
 
-  // Timeout after 30s so it never spins forever
-  const aiTimeout = setTimeout(()=>{
-    bodyEl.innerHTML = '<div class="aiph" style="color:var(--am)">&#x23F1; AI taking too long — tap Re-analyse to retry</div>';
-    if(btn) btn.disabled=false;
-  }, 30000);
-
   try{
+    // Show which provider is being used
+    const provider = (cfg.aiProvider||'groq').toUpperCase();
+    if(bodyEl) bodyEl.innerHTML = '<div class="popup-loading"><div class="popup-spinner"></div><div class="popup-loading-txt">Asking ' + provider + ' AI…</div></div>';
+
     const text = await groqCall(prompt, 1500);
-    clearTimeout(aiTimeout);
+
+    if(!text || text.trim().length < 10){
+      bodyEl.innerHTML = '<div class="aiph" style="color:var(--am)">&#x26A0; AI returned empty response — tap Re-analyse</div>';
+      if(btn) btn.disabled=false;
+      return;
+    }
     renderSignalCard(text, r, bodyEl);
   }catch(e){
-    clearTimeout(aiTimeout);
-    bodyEl.innerHTML = '<div class="aiph" style="color:var(--rd)">&#x274C; ' + e.message + '<br><br><span style="color:var(--tx3);font-size:11px">Tap Re-analyse to retry</span></div>';
+    console.error('AI error:', e);
+    bodyEl.innerHTML =
+      '<div style="padding:20px">' +
+      '<div style="color:var(--rd);font-size:13px;font-weight:600;margin-bottom:10px">&#x274C; AI Error</div>' +
+      '<div style="color:var(--tx2);font-size:12px;line-height:1.8;margin-bottom:14px">' + e.message + '</div>' +
+      '<div style="padding:10px 12px;background:var(--bg3);border-radius:8px;font-size:11px;color:var(--tx3);line-height:1.8">' +
+        '&#x1F4A1; Try:<br>' +
+        '1. Settings → switch AI model to <b>llama-3.1-8b-instant</b><br>' +
+        '2. Or switch provider to <b>OpenAI</b><br>' +
+        '3. Tap Re-analyse to retry' +
+      '</div></div>';
   }
   if(btn) btn.disabled=false;
 }
