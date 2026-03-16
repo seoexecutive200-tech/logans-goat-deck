@@ -1356,11 +1356,19 @@ QUANTITY: ${preQty || 'none'}
 RISK: $${riskUSD}
 MARKET: [TRADEABLE if IB + trend align, NOT TRADEABLE if no IB or conflicting signals, WAIT if unclear]`;
 
+  // Timeout after 30s so it never spins forever
+  const aiTimeout = setTimeout(()=>{
+    bodyEl.innerHTML = '<div class="aiph" style="color:var(--am)">&#x23F1; AI taking too long — tap Re-analyse to retry</div>';
+    if(btn) btn.disabled=false;
+  }, 30000);
+
   try{
-    const text=await groqCall(prompt, 1500);
+    const text = await groqCall(prompt, 1500);
+    clearTimeout(aiTimeout);
     renderSignalCard(text, r, bodyEl);
   }catch(e){
-    bodyEl.innerHTML=`<div class="aiph" style="color:var(--rd)">${e.message}</div>`;
+    clearTimeout(aiTimeout);
+    bodyEl.innerHTML = '<div class="aiph" style="color:var(--rd)">&#x274C; ' + e.message + '<br><br><span style="color:var(--tx3);font-size:11px">Tap Re-analyse to retry</span></div>';
   }
   if(btn) btn.disabled=false;
 }
@@ -2576,9 +2584,27 @@ function openAnalysisPopup(r){
   const sym = r.symbol.replace('USDT','') + '/USDT';
   g('popupTitle').textContent = '◈ ' + sym + ' — AI Analysis';
   g('popupSub').textContent   = '$' + fp(r.price) + '  ·  ' + r.trend + '  ·  ' + (r.hasIB ? 'IB detected' : 'No IB') + '  ·  15m RSI ' + r.r15.toFixed(1);
-  g('popupBody').innerHTML    = '<div class="popup-loading"><div class="popup-spinner"></div><div class="popup-loading-txt">Asking AI — full analysis incoming…</div></div>';
   g('analysisPopup').classList.add('open');
   document.body.style.overflow = 'hidden';
+
+  if(!r.hasIB){
+    const trendTxt = r.trend==='uptrend' ? 'Uptrend' : r.trend==='downtrend' ? 'Downtrend' : 'Neutral';
+    g('popupBody').innerHTML =
+      '<div style="text-align:center;padding:40px 20px">' +
+      '<div style="font-size:36px;margin-bottom:14px">&#x1F4CA;</div>' +
+      '<div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:8px">No Inside Bar Detected</div>' +
+      '<div style="font-size:12px;color:var(--tx3);line-height:1.9;margin-bottom:16px">' +
+        trendTxt + ' · No IB on 15m, 45m or 90m<br>' +
+        'RSI 15m: ' + r.r15.toFixed(1) + ' · 1h: ' + (r.ch1h>=0?'+':'') + r.ch1h.toFixed(2) + '%' +
+      '</div>' +
+      '<div style="padding:12px 14px;background:var(--bg3);border-radius:8px;border:1px solid var(--bd2);font-size:11px;color:var(--tx2);line-height:1.8;text-align:left">' +
+        '&#x1F4A1; An inside bar forms when a candle is fully contained within the previous candle range. ' +
+        'Wait for one to appear on 15m, 45m or 90m then re-analyse.' +
+      '</div></div>';
+    return;
+  }
+
+  g('popupBody').innerHTML = '<div class="popup-loading"><div class="popup-spinner"></div><div class="popup-loading-txt">Asking AI — full analysis incoming…</div></div>';
   doAI(r, 'popupBody');
 }
 
